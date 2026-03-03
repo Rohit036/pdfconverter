@@ -1,11 +1,17 @@
 import io
 import logging
 import os
+import threading
+from urllib.parse import urlparse
 
+import requests
 from dotenv import load_dotenv
+from flask import Flask, request as flask_request
 from PIL import Image
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from twilio.rest import Client as TwilioClient
+from twilio.twiml.messaging_response import MessagingResponse
 
 load_dotenv()
 
@@ -14,6 +20,10 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
+MEDIA_DOWNLOAD_TIMEOUT = 30  # seconds
+
+flask_app = Flask(__name__)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -103,6 +113,98 @@ def _image_bytes_to_pdf(image_data: bytearray) -> io.BytesIO:
     return pdf_bytes
 
 
+def send_whatsapp_message(to: str, body: str) -> None:
+    """Send a WhatsApp text message via Twilio."""
+    account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+    from_number = os.environ.get("TWILIO_WHATSAPP_NUMBER")
+    if not all([account_sid, auth_token, from_number]):
+        logger.error("Twilio credentials are not fully configured.")
+        return
+    client = TwilioClient(account_sid, auth_token)
+    client.messages.create(body=body, from_=from_number, to=to)
+
+
+def send_whatsapp_pdf(to: str, media_url: str) -> None:
+    """Send a WhatsApp message with a PDF media URL via Twilio.
+
+    Note: Twilio requires a publicly accessible URL to deliver media.
+    In production, host the converted PDF at a public URL and pass it here.
+    """
+    account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+    from_number = os.environ.get("TWILIO_WHATSAPP_NUMBER")
+    if not all([account_sid, auth_token, from_number]):
+        logger.error("Twilio credentials are not fully configured.")
+        return
+    client = TwilioClient(account_sid, auth_token)
+    client.messages.create(
+        body="✅ Here is your PDF!",
+        from_=from_number,
+        to=to,
+        media_url=[media_url],
+    )
+
+
+def handle_whatsapp_media(media_url: str, account_sid: str, auth_token: str) -> io.BytesIO:
+    """Download media from Twilio and convert it to a PDF BytesIO object."""
+    parsed = urlparse(media_url)
+    if parsed.scheme != "https" or not parsed.hostname or not parsed.hostname.endswith(".twilio.com"):
+        raise ValueError(f"Refusing to fetch media from untrusted host: {parsed.hostname!r}")
+    response = requests.get(media_url, auth=(account_sid, auth_token), timeout=MEDIA_DOWNLOAD_TIMEOUT)
+    response.raise_for_status()
+    return _image_bytes_to_pdf(bytearray(response.content))
+
+
+@flask_app.route("/whatsapp", methods=["POST"])
+def whatsapp_webhook():
+    """Handle incoming WhatsApp messages from Twilio."""
+    incoming_msg = flask_request.values.get("Body", "").strip().lower()
+    from_number = flask_request.values.get("From", "")
+    num_media = int(flask_request.values.get("NumMedia", 0))
+
+    resp = MessagingResponse()
+
+    if incoming_msg in ("help", "/help"):
+        resp.message(
+            "📸 Send me an image via WhatsApp and I will convert it to a PDF for you!\n\n"
+            "Supported formats: JPEG, PNG, BMP, GIF, TIFF, WEBP"
+        )
+        return str(resp)
+
+    if num_media == 0:
+        resp.message(
+            "👋 Hello! Send me any image and I will convert it to a PDF file for you!\n"
+            "Type 'help' for more information."
+        )
+        return str(resp)
+
+    account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+
+    errors = []
+    converted = 0
+    for i in range(num_media):
+        media_url = flask_request.values.get(f"MediaUrl{i}", "")
+        media_type = flask_request.values.get(f"MediaContentType{i}", "")
+        if not media_type.startswith("image/"):
+            continue
+        try:
+            handle_whatsapp_media(media_url, account_sid, auth_token)
+            send_whatsapp_pdf(from_number, media_url)
+            converted += 1
+        except Exception as exc:
+            logger.error("Failed to convert WhatsApp media %s: %s", media_url, exc)
+            errors.append(str(exc))
+
+    if errors and converted == 0:
+        resp.message("❌ Sorry, I could not convert that image. Please try again with a different photo.")
+    elif converted == 0:
+        resp.message("⚠️ Please send an image file (JPEG, PNG, etc.).")
+
+    return str(resp)
+
+
 def main() -> None:
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
@@ -119,6 +221,18 @@ def main() -> None:
     application.add_handler(
         MessageHandler(filters.Document.IMAGE, convert_document)
     )
+
+    port = int(os.environ.get("PORT", 5000))
+    # NOTE: Flask's built-in server is used here for simplicity.
+    # For production, run with a WSGI server (e.g. gunicorn) instead of threading.
+    flask_thread = threading.Thread(
+        target=lambda: flask_app.run(host="0.0.0.0", port=port),
+        # Daemon thread: terminates when the main thread exits.
+        # Active WhatsApp requests may be interrupted on shutdown.
+        daemon=True,
+    )
+    flask_thread.start()
+    logger.info("Flask server started on port %d.", port)
 
     logger.info("Bot is running. Press Ctrl+C to stop.")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
