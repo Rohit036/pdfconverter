@@ -1,12 +1,13 @@
 # pdfconverter
 
-A simple Telegram bot that converts images to PDF files.
+A Telegram and WhatsApp bot that converts images to PDF files.
 
 ## Features
 
-- Send any image (photo or image document) to the bot
+- Send any image (photo or image document) to the bot via **Telegram** or **WhatsApp**
 - Receive a PDF version of that image instantly
 - Supports JPEG, PNG, BMP, GIF, TIFF, WEBP and other common formats
+- WhatsApp integration powered by **Twilio** with a **FastAPI** webhook
 
 ## Setup
 
@@ -22,12 +23,20 @@ A simple Telegram bot that converts images to PDF files.
 pip install -r requirements.txt
 ```
 
-### 3. Configure the bot token
+### 3. Configure environment variables
 
 ```bash
 cp .env.example .env
-# Open .env and replace "your_bot_token_here" with your actual token
+# Open .env and fill in your tokens
 ```
+
+| Variable | Description |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | Token from BotFather |
+| `TWILIO_ACCOUNT_SID` | Your Twilio Account SID |
+| `TWILIO_AUTH_TOKEN` | Your Twilio Auth Token |
+| `TWILIO_WHATSAPP_NUMBER` | Twilio WhatsApp sender (e.g. `whatsapp:+14155238886`) |
+| `PORT` | Port for the FastAPI webhook server (default: `8000`) |
 
 ### 4. Run the bot
 
@@ -35,13 +44,73 @@ cp .env.example .env
 python bot.py
 ```
 
-## Usage
+This starts both the Telegram polling loop and the FastAPI/uvicorn webhook server on the configured port.
 
-1. Open Telegram and search for your bot by the username you set with BotFather.
-2. Send `/start` or just send an image.
-3. The bot will reply with a PDF file of your image.
+---
 
-## Commands
+## Testing WhatsApp + Twilio locally
+
+The Twilio sandbox sends HTTP POST requests to your webhook URL, so your local machine must be reachable from the internet. Use [ngrok](https://ngrok.com/) to create a secure tunnel.
+
+### Step 1 — Install ngrok
+
+Download from <https://ngrok.com/download> or install via npm:
+
+```bash
+npm install -g ngrok
+```
+
+### Step 2 — Start the bot
+
+```bash
+python bot.py
+# FastAPI server listening on http://0.0.0.0:8000
+```
+
+### Step 3 — Expose port 8000 with ngrok
+
+Open a **second terminal** and run:
+
+```bash
+ngrok http 8000
+```
+
+ngrok will display a public HTTPS URL, for example:
+
+```
+Forwarding  https://abc123.ngrok-free.app -> http://localhost:8000
+```
+
+Copy the `https://` forwarding URL.
+
+### Step 4 — Configure the Twilio WhatsApp sandbox webhook
+
+1. Go to the [Twilio Console](https://console.twilio.com/).
+2. Navigate to **Messaging → Try it out → Send a WhatsApp message**.
+3. In the **Sandbox settings** tab, set the **"When a message comes in"** field to:
+
+   ```
+   https://abc123.ngrok-free.app/whatsapp
+   ```
+
+   Make sure the method is **HTTP POST**.
+4. Click **Save**.
+
+### Step 5 — Join the sandbox
+
+Follow the on-screen instructions in the Twilio Console to join the sandbox by sending the join code (e.g. `join <sandbox-word>`) from your WhatsApp to the Twilio sandbox number.
+
+### Step 6 — Test it
+
+- **Text message**: send `hello` → bot replies with a welcome prompt.
+- **Help**: send `help` or `/help` → bot replies with supported formats.
+- **Image**: send any JPEG/PNG image → bot converts it and sends back a PDF.
+
+You can watch the live requests in the ngrok terminal and in the bot's log output.
+
+---
+
+## Commands (Telegram)
 
 | Command | Description |
 |---------|-------------|
@@ -65,20 +134,22 @@ python bot.py
    - Select your forked repository.
    - Railway will auto-detect Python and install dependencies from `requirements.txt`.
 
-4. **Add the bot token as an environment variable**:
-   - In your Railway project, open the **Variables** tab (or click on your service → **Variables**).
-   - Click **New Variable** and add:
-     - **Name**: `TELEGRAM_BOT_TOKEN`
-     - **Value**: the token you copied from BotFather (e.g. `123456:ABC-DEF1234...`)
-   - Click **Add** to save. Railway will automatically redeploy with the new variable.
+4. **Add environment variables**:
+   - In your Railway project, open the **Variables** tab.
+   - Add `TELEGRAM_BOT_TOKEN`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_NUMBER`, and `PORT` (e.g. `8000`).
 
-5. **Verify the deployment**:
-   - Open the **Deployments** tab and wait for the build to finish (usually under a minute).
-   - Check the **Logs** tab — you should see `Bot is running.`
-   - Send `/start` to your bot in Telegram to confirm it is responding.
+5. **Set the Twilio webhook URL** to your Railway deployment URL:
+
+   ```
+   https://<your-railway-app>.railway.app/whatsapp
+   ```
+
+6. **Verify the deployment**:
+   - Open the **Deployments** tab and wait for the build to finish.
+   - Check the **Logs** tab — you should see `FastAPI server started on port 8000.` and `Bot is running.`
+   - Send `/start` to your Telegram bot and a test image to WhatsApp to confirm both work.
 
 ### Notes
 
-- The bot runs as a **worker** process (no HTTP port needed), which is why there is no web server.
 - If the process crashes, Railway will restart it automatically (configured in `railway.json`).
 - To update the bot, simply push a new commit to GitHub — Railway will redeploy automatically.

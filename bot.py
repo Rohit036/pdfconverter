@@ -5,8 +5,10 @@ import threading
 from urllib.parse import urlparse
 
 import requests
+import uvicorn
 from dotenv import load_dotenv
-from flask import Flask, request as flask_request
+from fastapi import FastAPI, Request
+from fastapi.responses import Response
 from PIL import Image
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
@@ -23,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 MEDIA_DOWNLOAD_TIMEOUT = 30  # seconds
 
-flask_app = Flask(__name__)
+fastapi_app = FastAPI()
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -156,12 +158,13 @@ def handle_whatsapp_media(media_url: str, account_sid: str, auth_token: str) -> 
     return _image_bytes_to_pdf(bytearray(response.content))
 
 
-@flask_app.route("/whatsapp", methods=["POST"])
-def whatsapp_webhook():
+@fastapi_app.post("/whatsapp")
+async def whatsapp_webhook(request: Request) -> Response:
     """Handle incoming WhatsApp messages from Twilio."""
-    incoming_msg = flask_request.values.get("Body", "").strip().lower()
-    from_number = flask_request.values.get("From", "")
-    num_media = int(flask_request.values.get("NumMedia", 0))
+    form_data = await request.form()
+    incoming_msg = form_data.get("Body", "").strip().lower()
+    from_number = form_data.get("From", "")
+    num_media = int(form_data.get("NumMedia", 0))
 
     resp = MessagingResponse()
 
@@ -170,14 +173,14 @@ def whatsapp_webhook():
             "📸 Send me an image via WhatsApp and I will convert it to a PDF for you!\n\n"
             "Supported formats: JPEG, PNG, BMP, GIF, TIFF, WEBP"
         )
-        return str(resp)
+        return Response(content=str(resp), media_type="application/xml")
 
     if num_media == 0:
         resp.message(
             "👋 Hello! Send me any image and I will convert it to a PDF file for you!\n"
             "Type 'help' for more information."
         )
-        return str(resp)
+        return Response(content=str(resp), media_type="application/xml")
 
     account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
     auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
@@ -185,8 +188,8 @@ def whatsapp_webhook():
     errors = []
     converted = 0
     for i in range(num_media):
-        media_url = flask_request.values.get(f"MediaUrl{i}", "")
-        media_type = flask_request.values.get(f"MediaContentType{i}", "")
+        media_url = form_data.get(f"MediaUrl{i}", "")
+        media_type = form_data.get(f"MediaContentType{i}", "")
         if not media_type.startswith("image/"):
             continue
         try:
@@ -202,7 +205,7 @@ def whatsapp_webhook():
     elif converted == 0:
         resp.message("⚠️ Please send an image file (JPEG, PNG, etc.).")
 
-    return str(resp)
+    return Response(content=str(resp), media_type="application/xml")
 
 
 def main() -> None:
@@ -222,17 +225,16 @@ def main() -> None:
         MessageHandler(filters.Document.IMAGE, convert_document)
     )
 
-    port = int(os.environ.get("PORT", 5000))
-    # NOTE: Flask's built-in server is used here for simplicity.
-    # For production, run with a WSGI server (e.g. gunicorn) instead of threading.
-    flask_thread = threading.Thread(
-        target=lambda: flask_app.run(host="0.0.0.0", port=port),
+    port = int(os.environ.get("PORT", 8000))
+    # Run uvicorn (ASGI server) in a daemon thread alongside the Telegram polling loop.
+    uvicorn_thread = threading.Thread(
+        target=lambda: uvicorn.run(fastapi_app, host="0.0.0.0", port=port, log_level="info"),
         # Daemon thread: terminates when the main thread exits.
         # Active WhatsApp requests may be interrupted on shutdown.
         daemon=True,
     )
-    flask_thread.start()
-    logger.info("Flask server started on port %d.", port)
+    uvicorn_thread.start()
+    logger.info("FastAPI server started on port %d.", port)
 
     logger.info("Bot is running. Press Ctrl+C to stop.")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
