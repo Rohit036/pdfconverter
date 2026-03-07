@@ -119,7 +119,7 @@ You can watch the live requests in the ngrok terminal and in the bot's log outpu
 
 ---
 
-## Deploy to Railway
+## Deploy `whatsapp_reply_app.py` to Railway
 
 [Railway](https://railway.app) is a cloud platform that lets you deploy the bot in minutes without managing servers.
 
@@ -134,22 +134,34 @@ You can watch the live requests in the ngrok terminal and in the bot's log outpu
    - Select your forked repository.
    - Railway will auto-detect Python and install dependencies from `requirements.txt`.
 
-4. **Add environment variables**:
-   - In your Railway project, open the **Variables** tab.
-   - Add `TELEGRAM_BOT_TOKEN`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_NUMBER`, and `PORT` (e.g. `8000`).
+4. **Railway start command / Procfile**:
+   - This repository is configured to start `whatsapp_reply_app.py`.
+   - Railway uses `python whatsapp_reply_app.py`, which starts the FastAPI app on `0.0.0.0:$PORT`.
 
-5. **Set the Twilio webhook URL** to your Railway deployment URL:
+5. **Add environment variables**:
+   - In your Railway project, open the **Variables** tab.
+   - For `whatsapp_reply_app.py`, the only required variable is:
+
+     | Variable | Required | Example | Notes |
+     |---|---|---|---|
+     | `PORT` | Yes | `5000` | Railway usually injects this automatically, but you can add it manually if needed. |
+
+   - No `TELEGRAM_BOT_TOKEN`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_NUMBER`, or `PUBLIC_BASE_URL` values are required for the reply app.
+
+6. **Set the Twilio webhook URL** to your Railway deployment URL:
 
    ```
    https://<your-railway-app>.railway.app/whatsapp
    ```
 
-6. **Verify the deployment**:
-   - Open the **Deployments** tab and wait for the build to finish.
-   - Check the **Logs** tab — you should see `FastAPI server started on port 8000.` and `Bot is running.`
-   - Send `/start` to your Telegram bot and a test image to WhatsApp to confirm both work.
+7. **Verify the deployment**:
+    - Open the **Deployments** tab and wait for the build to finish.
+    - Check the **Logs** tab — the FastAPI app should start successfully on Railway's assigned port.
+    - Open `https://<your-railway-app>.railway.app/` and confirm it returns `{"ok": true}`.
+    - Send `hi` or `hello` to your Twilio WhatsApp number and confirm you receive the reply message from the webhook.
 
 ### Notes
 
 - If the process crashes, Railway will restart it automatically (configured in `railway.json`).
 - To update the bot, simply push a new commit to GitHub — Railway will redeploy automatically.
+- If you later deploy `whatsapp_pdf_app.py` instead, you will also need `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `PUBLIC_BASE_URL`, and any other variables used by that app.

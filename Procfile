@@ -1,1 +1,1 @@
-worker: python bot.py
+web: python whatsapp_reply_app.py
