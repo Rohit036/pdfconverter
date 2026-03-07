@@ -2,5 +2,7 @@ python-telegram-bot==20.7
 Pillow==12.1.1
 python-dotenv==1.0.1
 twilio==9.2.0
-flask==3.1.0
+fastapi==0.115.14
+uvicorn[standard]==0.34.3
+python-multipart==0.0.22
 requests==2.31.0
