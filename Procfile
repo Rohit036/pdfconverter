@@ -1,1 +1,1 @@
-web: python whatsapp_reply_app.py
+web: python whatsapp_pdf_app.py

@@ -32,19 +32,20 @@ cp .env.example .env
 
 | Variable | Description |
 |---|---|
-| `TELEGRAM_BOT_TOKEN` | Token from BotFather |
 | `TWILIO_ACCOUNT_SID` | Your Twilio Account SID |
 | `TWILIO_AUTH_TOKEN` | Your Twilio Auth Token |
-| `TWILIO_WHATSAPP_NUMBER` | Twilio WhatsApp sender (e.g. `whatsapp:+14155238886`) |
-| `PORT` | Port for the FastAPI webhook server (default: `8000`) |
+| `PUBLIC_BASE_URL` | Public base URL that Twilio can reach, such as your ngrok or Railway URL |
+| `PORT` | Port for the FastAPI webhook server (default: `5000`) |
+| `TELEGRAM_BOT_TOKEN` | Token from BotFather (only needed for the Telegram bot flow) |
+| `TWILIO_WHATSAPP_NUMBER` | Twilio WhatsApp sender (only needed for other Twilio flows in this repo) |
 
-### 4. Run the bot
+### 4. Run the app
 
 ```bash
-python bot.py
+python whatsapp_pdf_app.py
 ```
 
-This starts both the Telegram polling loop and the FastAPI/uvicorn webhook server on the configured port.
+This starts the FastAPI/uvicorn webhook server on the configured port.
 
 ---
 
@@ -60,25 +61,25 @@ Download from <https://ngrok.com/download> or install via npm:
 npm install -g ngrok
 ```
 
-### Step 2 — Start the bot
+### Step 2 — Start the app
 
 ```bash
-python bot.py
-# FastAPI server listening on http://0.0.0.0:8000
+python whatsapp_pdf_app.py
+# FastAPI server listening on http://0.0.0.0:5000
 ```
 
-### Step 3 — Expose port 8000 with ngrok
+### Step 3 — Expose port 5000 with ngrok
 
 Open a **second terminal** and run:
 
 ```bash
-ngrok http 8000
+ngrok http 5000
 ```
 
 ngrok will display a public HTTPS URL, for example:
 
 ```
-Forwarding  https://abc123.ngrok-free.app -> http://localhost:8000
+Forwarding  https://abc123.ngrok-free.app -> http://localhost:5000
 ```
 
 Copy the `https://` forwarding URL.
@@ -102,9 +103,9 @@ Follow the on-screen instructions in the Twilio Console to join the sandbox by s
 
 ### Step 6 — Test it
 
-- **Text message**: send `hello` → bot replies with a welcome prompt.
-- **Help**: send `help` or `/help` → bot replies with supported formats.
-- **Image**: send any JPEG/PNG image → bot converts it and sends back a PDF.
+- **Text message**: send `hello` → the app replies with a welcome prompt.
+- **Other text**: send any text without an image → the app asks you to send an image.
+- **Image**: send any JPEG/PNG image → the app converts it and sends back a PDF.
 
 You can watch the live requests in the ngrok terminal and in the bot's log output.
 
@@ -119,7 +120,7 @@ You can watch the live requests in the ngrok terminal and in the bot's log outpu
 
 ---
 
-## Deploy `whatsapp_reply_app.py` to Railway
+## Deploy `whatsapp_pdf_app.py` to Railway
 
 [Railway](https://railway.app) is a cloud platform that lets you deploy the bot in minutes without managing servers.
 
@@ -135,18 +136,22 @@ You can watch the live requests in the ngrok terminal and in the bot's log outpu
    - Railway will auto-detect Python and install dependencies from `requirements.txt`.
 
 4. **Railway start command / Procfile**:
-   - This repository is configured to start `whatsapp_reply_app.py`.
-   - Railway uses `python whatsapp_reply_app.py`, which starts the FastAPI app on `0.0.0.0:$PORT`.
+   - This repository is configured to start `whatsapp_pdf_app.py`.
+   - Railway uses `python whatsapp_pdf_app.py`, which starts the FastAPI app on `0.0.0.0:$PORT`.
 
 5. **Add environment variables**:
    - In your Railway project, open the **Variables** tab.
-   - For `whatsapp_reply_app.py`, the only required variable is:
+   - For `whatsapp_pdf_app.py`, add:
 
-     | Variable | Required | Example | Notes |
-     |---|---|---|---|
-     | `PORT` | Yes | `5000` | Railway usually injects this automatically, but you can add it manually if needed. |
+      | Variable | Required | Example | Notes |
+      |---|---|---|---|
+      | `TWILIO_ACCOUNT_SID` | Yes | `ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx` | Used to download the image media that Twilio sends to the webhook. |
+      | `TWILIO_AUTH_TOKEN` | Yes | `your_auth_token` | Used together with the account SID for Twilio media auth. |
+      | `PUBLIC_BASE_URL` | Recommended | `https://your-app.up.railway.app` | Set this explicitly if you want a fixed public URL for the generated PDF links. |
+      | `PORT` | Usually automatic | `5000` | Railway normally injects this for you. |
 
-   - No `TELEGRAM_BOT_TOKEN`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_NUMBER`, or `PUBLIC_BASE_URL` values are required for the reply app.
+   - If `PUBLIC_BASE_URL` is omitted, `whatsapp_pdf_app.py` will try to use Railway's public domain variables automatically.
+   - `TELEGRAM_BOT_TOKEN` and `TWILIO_WHATSAPP_NUMBER` are not required for this app.
 
 6. **Set the Twilio webhook URL** to your Railway deployment URL:
 
@@ -158,10 +163,11 @@ You can watch the live requests in the ngrok terminal and in the bot's log outpu
     - Open the **Deployments** tab and wait for the build to finish.
     - Check the **Logs** tab — the FastAPI app should start successfully on Railway's assigned port.
     - Open `https://<your-railway-app>.railway.app/` and confirm it returns `{"ok": true}`.
-    - Send `hi` or `hello` to your Twilio WhatsApp number and confirm you receive the reply message from the webhook.
+    - Send `hi` or `hello` to your Twilio WhatsApp number and confirm you receive the prompt asking for an image.
+    - Send an image and confirm you receive a PDF reply from the webhook.
 
 ### Notes
 
 - If the process crashes, Railway will restart it automatically (configured in `railway.json`).
 - To update the bot, simply push a new commit to GitHub — Railway will redeploy automatically.
-- If you later deploy `whatsapp_pdf_app.py` instead, you will also need `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `PUBLIC_BASE_URL`, and any other variables used by that app.
+- Generated PDFs are stored on the Railway instance filesystem, so they are intended for short-lived delivery links rather than permanent storage.

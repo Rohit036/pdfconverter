@@ -17,10 +17,9 @@ app = FastAPI()
 
 ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL")
 PORT = int(os.getenv("PORT", "5000"))
 
-OUTPUT_DIR = Path("generated_pdfs")
+OUTPUT_DIR = Path(__file__).resolve().parent / "generated_pdfs"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 
@@ -42,6 +41,8 @@ def download_twilio_media(media_url: str) -> bytes:
     parsed = urlparse(media_url)
     if parsed.scheme != "https" or not parsed.hostname or not parsed.hostname.endswith(".twilio.com"):
         raise ValueError("Untrusted media URL")
+    if not ACCOUNT_SID or not AUTH_TOKEN:
+        raise RuntimeError("Set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN before downloading media")
 
     response = requests.get(
         media_url,
@@ -50,6 +51,23 @@ def download_twilio_media(media_url: str) -> bytes:
     )
     response.raise_for_status()
     return response.content
+
+
+def get_public_base_url() -> str:
+    public_base_url = os.getenv("PUBLIC_BASE_URL")
+    railway_public_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN")
+    railway_static_url = os.getenv("RAILWAY_STATIC_URL")
+
+    if public_base_url:
+        return public_base_url.rstrip("/")
+    if railway_public_domain:
+        return f"https://{railway_public_domain}".rstrip("/")
+    if railway_static_url:
+        return railway_static_url.rstrip("/")
+
+    raise RuntimeError(
+        "Set PUBLIC_BASE_URL or Railway public domain variables before sending PDFs"
+    )
 
 
 @app.get("/")
@@ -96,7 +114,7 @@ async def whatsapp_webhook(request: Request) -> Response:
     try:
         image_data = download_twilio_media(media_url)
         pdf_path = image_bytes_to_pdf(image_data)
-        pdf_url = f"{PUBLIC_BASE_URL}/files/{pdf_path.name}"
+        pdf_url = f"{get_public_base_url()}/files/{pdf_path.name}"
 
         message = resp.message("Here is your PDF.")
         message.media(pdf_url)
@@ -110,4 +128,4 @@ async def whatsapp_webhook(request: Request) -> Response:
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("whatsapp_pdf_app:app", host="0.0.0.0", port=PORT, reload=True)
+    uvicorn.run("whatsapp_pdf_app:app", host="0.0.0.0", port=PORT)
