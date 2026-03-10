@@ -78,7 +78,7 @@ def image_bytes_to_pdf(image_data: bytes) -> Path:
 
 def merge_images_to_pdf(image_data_list: list[bytes]) -> Path:
     if not image_data_list:
-        raise ValueError("Please send at least one image file.")
+        raise ValueError("Expected at least one image.")
 
     images = [load_pdf_ready_image(image_data) for image_data in image_data_list]
     file_name = f"{uuid.uuid4().hex}.pdf"
@@ -114,12 +114,19 @@ def health():
     return JSONResponse({"ok": True})
 
 
+def resolve_output_file(file_name: str) -> Path | None:
+    candidate = (OUTPUT_DIR / file_name).resolve()
+    output_root = OUTPUT_DIR.resolve()
+    if candidate.parent != output_root or candidate.suffix.lower() != ".pdf":
+        return None
+    return candidate
+
+
 @app.get("/files/{file_name}")
 def serve_pdf(file_name: str):
-    if file_name != Path(file_name).name or not file_name.lower().endswith(".pdf"):
+    file_path = resolve_output_file(file_name)
+    if file_path is None:
         return JSONResponse({"error": "file not found"}, status_code=404)
-
-    file_path = OUTPUT_DIR / file_name
     if not file_path.exists():
         return JSONResponse({"error": "file not found"}, status_code=404)
 
@@ -178,8 +185,9 @@ async def whatsapp_webhook(request: Request) -> Response:
             for index, image_data in enumerate(image_data_list, start=1):
                 pdf_path = image_bytes_to_pdf(image_data)
                 pdf_url = build_pdf_url(pdf_path)
-                message_text = "Here is your PDF." if len(image_data_list) == 1 else f"Here is PDF {index} of {len(image_data_list)}."
-                message = resp.message(message_text)
+                message = resp.message(
+                    build_single_pdf_message_text(index, len(image_data_list))
+                )
                 message.media(pdf_url)
         else:
             pdf_path = merge_images_to_pdf(image_data_list)
@@ -199,6 +207,12 @@ def build_pdf_url(pdf_path: Path) -> str:
     if not PUBLIC_BASE_URL:
         raise ValueError("PUBLIC_BASE_URL is not configured")
     return f"{PUBLIC_BASE_URL}/files/{pdf_path.name}"
+
+
+def build_single_pdf_message_text(index: int, total: int) -> str:
+    if total == 1:
+        return "Here is your PDF."
+    return f"Here is PDF {index} of {total}."
 
 
 if __name__ == "__main__":

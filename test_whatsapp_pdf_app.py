@@ -46,6 +46,11 @@ class WhatsAppPdfAppTests(unittest.TestCase):
         self.assertIn("Single page conversion", response.text)
         self.assertIn("Multipage conversion", response.text)
 
+    def test_file_endpoint_rejects_path_traversal(self) -> None:
+        response = self.client.get("/files/../secret.pdf")
+
+        self.assertEqual(response.status_code, 404)
+
     def test_single_page_mode_creates_one_pdf_per_uploaded_image(self) -> None:
         sender = "whatsapp:+10000000001"
         self.client.post("/whatsapp", data={"Body": "1", "From": sender, "NumMedia": "0"})
