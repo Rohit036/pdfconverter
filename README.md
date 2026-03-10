@@ -6,6 +6,7 @@ A Telegram and WhatsApp bot that converts images to PDF files.
 
 - Send any image (photo or image document) to the bot via **Telegram** or **WhatsApp**
 - Receive a PDF version of that image instantly
+- WhatsApp offers **Single page conversion** and **Multipage conversion** modes
 - Supports JPEG, PNG, BMP, GIF, TIFF, WEBP and other common formats
 - WhatsApp integration powered by **Twilio** with a **FastAPI** webhook
 
@@ -102,9 +103,9 @@ Follow the on-screen instructions in the Twilio Console to join the sandbox by s
 
 ### Step 6 — Test it
 
-- **Text message**: send `hello` → bot replies with a welcome prompt.
-- **Help**: send `help` or `/help` → bot replies with supported formats.
-- **Image**: send any JPEG/PNG image → bot converts it and sends back a PDF.
+- **Text message**: send `hello` → bot replies with the two conversion options.
+- **Single page**: reply with `1`, then send one or more JPEG/PNG images → bot returns one PDF per image.
+- **Multipage**: reply with `2`, then send one or more JPEG/PNG images → bot returns one merged PDF in upload order.
 
 You can watch the live requests in the ngrok terminal and in the bot's log output.
 
@@ -136,17 +137,19 @@ You can watch the live requests in the ngrok terminal and in the bot's log outpu
 
 4. **Railway start command / Procfile**:
    - This repository is configured to start `whatsapp_reply_app.py`.
+   - `whatsapp_reply_app.py` now serves the WhatsApp PDF converter flow via the shared FastAPI app.
    - Railway uses `python whatsapp_reply_app.py`, which starts the FastAPI app on `0.0.0.0:$PORT`.
 
 5. **Add environment variables**:
    - In your Railway project, open the **Variables** tab.
-   - For `whatsapp_reply_app.py`, the only required variable is:
+   - Add the following values for the WhatsApp PDF converter flow:
 
-     | Variable | Required | Example | Notes |
-     |---|---|---|---|
-     | `PORT` | Yes | `5000` | Railway usually injects this automatically, but you can add it manually if needed. |
-
-   - No `TELEGRAM_BOT_TOKEN`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_NUMBER`, or `PUBLIC_BASE_URL` values are required for the reply app.
+      | Variable | Required | Example | Notes |
+      |---|---|---|---|
+      | `PORT` | Yes | `5000` | Railway usually injects this automatically, but you can add it manually if needed. |
+      | `TWILIO_ACCOUNT_SID` | Yes | `AC...` | Used to download incoming media from Twilio securely. |
+      | `TWILIO_AUTH_TOKEN` | Yes | `...` | Used with the account SID for media downloads. |
+      | `PUBLIC_BASE_URL` | Yes | `https://<your-railway-app>.railway.app` | Used to build public `/files/...` links for PDF replies. |
 
 6. **Set the Twilio webhook URL** to your Railway deployment URL:
 
@@ -155,13 +158,14 @@ You can watch the live requests in the ngrok terminal and in the bot's log outpu
    ```
 
 7. **Verify the deployment**:
-    - Open the **Deployments** tab and wait for the build to finish.
-    - Check the **Logs** tab — the FastAPI app should start successfully on Railway's assigned port.
-    - Open `https://<your-railway-app>.railway.app/` and confirm it returns `{"ok": true}`.
-    - Send `hi` or `hello` to your Twilio WhatsApp number and confirm you receive the reply message from the webhook.
+     - Open the **Deployments** tab and wait for the build to finish.
+     - Check the **Logs** tab — the FastAPI app should start successfully on Railway's assigned port.
+     - Open `https://<your-railway-app>.railway.app/` and confirm it returns `{"ok": true}`.
+     - Send `hi` or `hello` to your Twilio WhatsApp number and confirm you receive the two conversion options.
+     - Reply with `1` or `2`, send images, and confirm you receive the expected PDF reply.
 
 ### Notes
 
 - If the process crashes, Railway will restart it automatically (configured in `railway.json`).
 - To update the bot, simply push a new commit to GitHub — Railway will redeploy automatically.
-- If you later deploy `whatsapp_pdf_app.py` instead, you will also need `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `PUBLIC_BASE_URL`, and any other variables used by that app.
+- `whatsapp_reply_app.py` and `whatsapp_pdf_app.py` now share the same WhatsApp PDF conversion flow.
